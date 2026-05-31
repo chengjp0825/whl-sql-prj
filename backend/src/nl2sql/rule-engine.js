@@ -1,0 +1,168 @@
+/**
+ * 规则引擎 — 用正则匹配常见 NL 查询模式，<1ms 生成 SQL
+ *
+ * 返回: { matched: true, conditions: [...], explanation: '...' }
+ *   或  { matched: false }
+ */
+
+// 分类关键词 → category_code（仅一级分类）
+const CATEGORY_MAP = [
+  { keys: ['电阻', '贴片电阻', '插件电阻', 'SMD电阻', '片式电阻', '排阻', '电阻阵列'], code: 'RES' },
+  { keys: ['电容', '贴片电容', 'SMD电容', '电解电容', '钽电容', '陶瓷电容', 'MLCC'], code: 'CAP' },
+  { keys: ['ic', '集成电路', '芯片', 'mcu', '单片机', 'ldo', 'soc', '运放', '放大器', '稳压器'], code: 'IC' },
+  { keys: ['连接器', '接插件', '排针', '排母', '端子', '接线端子'], code: 'CONN' },
+  { keys: ['电感', '磁珠'], code: 'IND' },
+  { keys: ['二极管', 'led', '稳压管', 'tvs'], code: 'DIO' },
+  { keys: ['三极管', 'mos管', 'mosfet', '晶体管'], code: 'TRA' },
+  { keys: ['晶振', '振荡器', 'oscillator'], code: 'CRY' },
+];
+
+// 封装匹配：字母+数字+可选横线格式
+const FOOTPRINT_RE = /(\d{4,5}[_-]?[A-Za-z]?|[A-Za-z]+-\d+[A-Za-z]?(-\d+)?|SOT-\d+(-\d+)?|SOIC-\d+|LQFP-\d+|BGA-\d+|QFN-\d+|DFN-\d+|SOP-\d+|TO-\d+)/gi;
+
+// 内部料号匹配：字母-数字-字母格式
+const INTERNAL_PN_RE = /([A-Z]{2,5}-\d{4,5}-[\w.]+(?:-\d+%)?)/gi;
+
+// 库存比较
+const STOCK_RE = /库存\s*(低于|小于|大于|>=|<=|>|<|=)\s*(\d+)/i;
+
+// 价格比较
+const PRICE_RE = /(单价|价格)\s*(低于|小于|大于|>=|<=|>|<|=|：)\s*(\d+\.?\d*)\s*(元?)/i;
+
+// 制造商：英文字母大写组合
+const MANUFACTURER_RE = /(TI|Yageo|Murata|Samsung|STMicroelectronics|ST|TDK|AVX|KEMET|Panasonic|Würth|Infineon|ADI|Maxim|Microchip|NXP|ON Semiconductor|Vishay|TE Connectivity|Molex|Hirose|JST)\b/gi;
+
+/**
+ * 解析自然语言，提取查询条件
+ */
+function parse(nl) {
+  const conditions = [];
+  const explanations = [];
+  const raw = nl.trim();
+
+  // 1. 封装
+  const footprintMatches = [];
+  let m;
+  const fpRe = new RegExp(FOOTPRINT_RE);
+  while ((m = fpRe.exec(raw)) !== null) {
+    footprintMatches.push(m[0]);
+  }
+  // 去重
+  const uniqueFps = [...new Set(footprintMatches)];
+  for (const fp of uniqueFps) {
+    conditions.push(`cl.footprint_name LIKE '%${fp}%'`);
+    explanations.push(`封装=${fp}`);
+  }
+
+  // 2. 分类（仅一级分类，"贴片电阻"→RES，"电容"→CAP）
+  //    条件匹配父分类 OR 自身，确保子分类下的物料也能查到
+  const lower = raw.toLowerCase();
+  for (const cat of CATEGORY_MAP) {
+    const hit = cat.keys.some((k) => lower.includes(k.toLowerCase()));
+    if (hit) {
+      conditions.push(`(cc.category_code = '${cat.code}' OR ccp.category_code = '${cat.code}')`);
+      explanations.push(`分类=${cat.keys[0]}`);
+    }
+  }
+
+  // 3. 制造商
+  const mfgRe = new RegExp(MANUFACTURER_RE);
+  const mfgMatches = [];
+  while ((m = mfgRe.exec(raw)) !== null) {
+    mfgMatches.push(m[0]);
+  }
+  const uniqueMfgs = [...new Set(mfgMatches)];
+  for (const mfg of uniqueMfgs) {
+    if (!conditions.some((c) => c.includes(`cl.manufacturer = '${mfg}'`))) {
+      conditions.push(`cl.manufacturer = '${mfg}'`);
+      explanations.push(`制造商=${mfg}`);
+    }
+  }
+
+  // 4. 库存比较
+  const stockMatch = raw.match(STOCK_RE);
+  if (stockMatch) {
+    const op = normalizeOp(stockMatch[1]);
+    const val = stockMatch[2];
+    conditions.push(`cl.stock_qty ${op} ${val}`);
+    explanations.push(`库存${stockMatch[1]}${val}`);
+  }
+
+  // 5. 价格比较
+  const priceMatch = raw.match(PRICE_RE);
+  if (priceMatch) {
+    const op = normalizeOp(priceMatch[2]);
+    const val = priceMatch[3];
+    conditions.push(`cl.unit_price ${op} ${val}`);
+    explanations.push(`价格${priceMatch[2]}${val}元`);
+  }
+
+  // 6. 内部料号
+  const pnRe = new RegExp(INTERNAL_PN_RE);
+  const pnMatches = [];
+  while ((m = pnRe.exec(raw)) !== null) {
+    pnMatches.push(m[0]);
+  }
+  const uniquePns = [...new Set(pnMatches)];
+  for (const pn of uniquePns) {
+    conditions.push(`cl.internal_pn LIKE '%${pn}%'`);
+    explanations.push(`料号=${pn}`);
+  }
+
+  // 7. 模糊搜索：如果前面都没匹配到，且有明确搜索词
+  if (conditions.length === 0) {
+    // 提取看起来像关键词的词（非停用词的中英文组合）
+    const keyword = extractKeyword(raw);
+    if (keyword) {
+      conditions.push(`(cl.internal_pn LIKE '%${keyword}%' OR cl.description LIKE '%${keyword}%')`);
+      explanations.push(`关键词="${keyword}"`);
+    }
+  }
+
+  if (conditions.length === 0) {
+    return { matched: false };
+  }
+
+  return {
+    matched: true,
+    conditions,
+    explanation: explanations.join(', '),
+  };
+}
+
+/**
+ * 根据解析结果构建完整 SQL
+ */
+function buildQuery(parseResult) {
+  if (!parseResult.matched) return null;
+
+  const where = parseResult.conditions.join(' AND ');
+  return `SELECT cl.*, cc.category_name
+FROM component_library cl
+LEFT JOIN component_category cc ON cl.category_id = cc.category_id
+LEFT JOIN component_category ccp ON cc.parent_id = ccp.category_id
+WHERE ${where}
+ORDER BY cl.updated_at DESC
+LIMIT 100`;
+}
+
+// ---- helpers ----
+
+function normalizeOp(op) {
+  const map = {
+    '低于': '<', '小于': '<', '大于': '>',
+    '>=': '>=', '<=': '<=', '=': '=',
+  };
+  return map[op] || op;
+}
+
+function extractKeyword(text) {
+  // 去掉常见停用词后，取剩余最长片段
+  const stopwords = /帮我|查一下|有没有|有哪些|显示|所有|的|什么|哪些|怎么|如何|物料|库里|还有|一下|一个/g;
+  const cleaned = text.replace(stopwords, ' ').trim();
+  // 取第一个长度>=2的词
+  const words = cleaned.split(/\s+/).filter((w) => w.length >= 2);
+  return words[0] || null;
+}
+
+module.exports = { parse, buildQuery };

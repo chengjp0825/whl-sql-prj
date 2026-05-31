@@ -20,9 +20,14 @@ const api = {
     return data;
   },
 
-  // 自然语言查询
+  // 自然语言查询（三层引擎）
   nlQuery(question) {
     return api.request('POST', '/query', { question });
+  },
+
+  // 执行已确认的 SQL
+  executeQuery(sql, type) {
+    return api.request('POST', '/query/execute', { sql, type });
   },
 
   // 物料 CRUD

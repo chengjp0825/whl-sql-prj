@@ -79,6 +79,43 @@ button:hover { background: #f1f5f9; }
 }
 .example-chip:hover { background: #dbeafe; }
 
+/* Filter Bar */
+.filter-bar {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px;
+  box-shadow: var(--shadow);
+}
+.filter-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.filter-item { display: flex; flex-direction: column; gap: 2px; }
+.filter-item label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; }
+.filter-item select, .filter-item input {
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 13px; min-width: 120px;
+}
+.filter-item select:focus, .filter-item input:focus {
+  outline: none; border-color: var(--primary);
+}
+.filter-range .range-inputs { display: flex; align-items: center; gap: 4px; }
+.filter-range .range-inputs span { color: var(--text-secondary); font-size: 12px; }
+.filter-actions { display: flex; gap: 4px; padding-bottom: 1px; }
+
+/* Query examples inline */
+.query-examples { display: flex; gap: 4px; }
+.query-examples .example-chip { font-size: 11px; padding: 2px 8px; }
+
+/* Status Bar source tag */
+.status-source {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px;
+  margin-left: 6px; font-weight: 600; vertical-align: middle;
+}
+.status-source.rule  { background: #dcfce7; color: #16a34a; }
+.status-source.cache { background: #dbeafe; color: #2563eb; }
+.status-source.llm   { background: #fef3c7; color: #d97706; }
+
+/* Confirm modal */
+.confirm-desc { font-weight: 600; margin-bottom: 4px; }
+.confirm-meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+
 /* Status Bar */
 .status-bar { font-size: 12px; color: var(--text-secondary); min-height: 20px; margin-bottom: 8px; }
 .status-bar.error { color: var(--danger); }

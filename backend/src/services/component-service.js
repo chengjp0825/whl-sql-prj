@@ -7,8 +7,8 @@ const componentService = {
     const params = [];
 
     if (filters.category_id) {
-      where.push('cl.category_id = ?');
-      params.push(filters.category_id);
+      where.push('(cl.category_id = ? OR cc.parent_id = ?)');
+      params.push(filters.category_id, filters.category_id);
     }
     if (filters.footprint_name) {
       where.push('cl.footprint_name LIKE ?');
