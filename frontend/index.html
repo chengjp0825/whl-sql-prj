@@ -221,13 +221,14 @@
   <div id="confirmOverlay" class="modal-overlay hidden">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h3>确认执行</h3>
+        <h3>AI 将执行以下操作</h3>
         <button id="confirmClose" class="btn-close">&times;</button>
       </div>
       <div class="modal-body">
         <p id="confirmDesc" class="confirm-desc"></p>
         <p id="confirmMeta" class="confirm-meta"></p>
-        <pre id="confirmSql" class="sql-preview"></pre>
+        <a href="#" id="confirmToggleSql" class="toggle-sql-link">查看 SQL ▸</a>
+        <pre id="confirmSql" class="sql-preview hidden"></pre>
       </div>
       <div class="modal-footer">
         <button id="confirmCancel" class="btn btn-outline">取消</button>

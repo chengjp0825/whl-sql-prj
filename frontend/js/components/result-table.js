@@ -37,11 +37,11 @@ const ResultTable = {
     }
 
     const columns = [
-      'component_id', 'internal_pn', 'category_name', 'description',
+      'component_id', 'internal_pn', 'top_category_code', 'description',
       'footprint_name', 'manufacturer', 'unit_price', 'stock_qty',
     ];
     const colLabels = {
-      component_id: 'ID', internal_pn: '内部料号', category_name: '分类',
+      component_id: 'ID', internal_pn: '内部料号', top_category_code: '分类',
       description: '描述', footprint_name: '封装', manufacturer: '制造商',
       unit_price: '单价', stock_qty: '库存',
     };
@@ -62,8 +62,8 @@ const ResultTable = {
 
     this.thead.innerHTML = `<tr>${labeledCols.map((c) => `<th>${c}</th>`).join('')}<th class="col-actions">操作</th></tr>`;
 
+    const stockIdx = columns.indexOf('stock_qty');
     this.tbody.innerHTML = rows.map(({ cells, rowId, stockLow }, i) => {
-      const stockIdx = columns.indexOf('stock_qty');
       return `
         <tr data-id="${rowId || ''}">
           ${cells.map((cell, ci) =>

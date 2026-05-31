@@ -153,4 +153,7 @@ function normalizeOp(op) {
   return map[op] || op;
 }
 
-module.exports = { parse, buildQuery };
+const WRITE_INTENT_RE = /修改|更新|删除|新增|添加|改一下|改掉|改成|删掉|去掉|加上|补充/;
+function detectWriteIntent(nl) { return WRITE_INTENT_RE.test(nl); }
+
+module.exports = { parse, buildQuery, detectWriteIntent };

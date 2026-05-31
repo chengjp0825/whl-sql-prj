@@ -26,12 +26,14 @@ const App = {
   // ---- 搜索模式 ----
 
   _initModeToggle() {
+    const searchBtn = document.getElementById('btnQuery');
     document.querySelectorAll('.mode-option').forEach((btn) => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.mode-option').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.searchMode = btn.dataset.mode;
-        // 切换 AI 模式时显示/隐藏免责声明
+        // 按钮文字 + 免责声明
+        searchBtn.textContent = this.searchMode === 'smart' ? 'AI 搜索' : '搜索';
         const dis = document.getElementById('aiDisclaimer');
         if (this.searchMode === 'smart') dis.classList.remove('hidden');
         else dis.classList.add('hidden');
@@ -121,11 +123,13 @@ const App = {
       ]);
       this.allComponents = compData.rows || [];
       this.allCategories = cats || [];
-      this._categoryCounts = null; // 强制重建
+      this._categoryCounts = null;
       this._renderSidebarCategories();
       this._initFilterDropdowns();
       this._updateLowStockBadge();
-      this.refresh();
+      // 渲染表格
+      ResultTable.renderList({ rows: this.allComponents, rowCount: this.allComponents.length });
+      this.showStatus('', '');
     } catch (err) {
       this.showStatus(`加载失败: ${err.message}（请检查后端是否已启动）`, 'error');
     }
@@ -229,10 +233,28 @@ const App = {
 
   _showConfirm(data) {
     this.pendingWrite = data;
-    document.getElementById('confirmDesc').textContent = data.explanation || 'AI 生成的写操作';
+    // 主内容：自然语言解释
+    const desc = data.explanation || data.suggestion || 'AI 已生成数据库操作，请核实后确认执行';
+    document.getElementById('confirmDesc').textContent = desc;
+    // 副信息
     document.getElementById('confirmMeta').textContent =
-      `类型: ${data.type} · 预计影响: ${data.estimatedRows || '?'} 行 · 来源: ${data.source || 'llm'}`;
+      `操作类型: ${data.type} · AI 生成 · 请核实后确认`;
+    // SQL 默认折叠
     document.getElementById('confirmSql').textContent = data.sql;
+    document.getElementById('confirmSql').classList.add('hidden');
+    const toggle = document.getElementById('confirmToggleSql');
+    toggle.textContent = '查看 SQL ▸';
+    toggle.onclick = (e) => {
+      e.preventDefault();
+      const sql = document.getElementById('confirmSql');
+      if (sql.classList.contains('hidden')) {
+        sql.classList.remove('hidden');
+        toggle.textContent = '收起 SQL ▾';
+      } else {
+        sql.classList.add('hidden');
+        toggle.textContent = '查看 SQL ▸';
+      }
+    };
     document.getElementById('confirmOverlay').classList.remove('hidden');
   },
 
@@ -283,21 +305,21 @@ const App = {
     const btn = document.getElementById('btnQuery');
     const input = document.getElementById('nlInput');
     // 禁用所有操作按钮
-    document.querySelectorAll('button, .side-link, .hint-chip, .mode-option').forEach((el) => {
+    document.querySelectorAll('#btnQuery, #btnAdd, #btnRefresh, #btnFilter, #btnFilterReset, .hint-chip, .mode-option').forEach((el) => {
       if (loading) el.setAttribute('disabled', '');
       else el.removeAttribute('disabled');
     });
     // 搜索按钮动画
     if (loading) {
-      btn.textContent = '搜索中...';
+      btn.textContent = this.searchMode === 'smart' ? 'AI 思考中...' : '搜索中...';
       btn.style.opacity = '0.7';
       btn.style.pointerEvents = 'none';
       input.style.opacity = '0.6';
       this.showStatus(this.searchMode === 'smart'
-        ? '<span class="loading-dot">AI 正在分析</span><span class="loading-dots"></span>'
+        ? '<span class="loading-dot">AI 正在分析您的需求</span><span class="loading-dots"><span></span><span></span><span></span></span>'
         : '查询中...', '');
     } else {
-      btn.textContent = '搜索';
+      btn.textContent = this.searchMode === 'smart' ? 'AI 搜索' : '搜索';
       btn.style.opacity = '1';
       btn.style.pointerEvents = '';
       input.style.opacity = '1';
@@ -321,7 +343,6 @@ const App = {
     document.getElementById('suggestionBox').classList.add('hidden');
   },
 
-  // 列表刷新（纯客户端渲染，不发 API）
   refresh() {
     ResultTable.renderList({ rows: this.allComponents, rowCount: this.allComponents.length });
     this.showStatus('', '');

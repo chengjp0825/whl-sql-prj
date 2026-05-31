@@ -211,12 +211,14 @@ button[disabled],.side-link[disabled],.hint-chip[disabled],.mode-option[disabled
 
 /* Loading dots animation */
 .loading-dot{font-weight:600;color:var(--primary);}
-.loading-dots::after{
-  content:'';animation:dots 1.2s steps(4,end) infinite;
+.loading-dots{display:inline-flex;gap:3px;vertical-align:middle;margin-left:4px;}
+.loading-dots span{
+  width:4px;height:4px;border-radius:50%;background:var(--primary);
+  animation:bounce 1.2s ease-in-out infinite;
 }
-@keyframes dots{
-  0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}100%{content:''}
-}
+.loading-dots span:nth-child(2){animation-delay:.15s}
+.loading-dots span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}
 
 /* Status bar */
 .status-bar{font-size:12px;color:var(--text-secondary);min-height:22px;margin-bottom:10px;line-height:22px;}
@@ -344,5 +346,7 @@ textarea{resize:vertical;}
   font-size:12px;overflow-x:auto;white-space:pre-wrap;line-height:1.7;
   font-family:var(--font-mono);
 }
-.confirm-desc{font-weight:650;}
-.confirm-meta{font-size:12px;color:var(--text-secondary);margin:6px 0;}
+.confirm-desc{font-weight:600;font-size:14px;color:var(--text);line-height:1.7;}
+.confirm-meta{font-size:12px;color:var(--text-secondary);margin:8px 0;}
+.toggle-sql-link{font-size:11px;color:var(--text-muted);text-decoration:none;display:inline-block;margin-top:4px;}
+.toggle-sql-link:hover{color:var(--primary);}

@@ -1,5 +1,14 @@
 const { query, run, lastInsertRowId } = require('../db/connection');
 
+const COMPONENT_SELECT = `
+  SELECT cl.*, cc.category_name,
+    COALESCE(ccp.category_code, cc.category_code) AS top_category_code,
+    COALESCE(ccp.category_name, cc.category_name) AS top_category_name
+  FROM component_library cl
+  LEFT JOIN component_category cc ON cl.category_id = cc.category_id
+  LEFT JOIN component_category ccp ON cc.parent_id = ccp.category_id
+`;
+
 const componentService = {
   async list(page = 1, pageSize = 20, filters = {}) {
     const offset = (page - 1) * pageSize;
@@ -34,9 +43,7 @@ const componentService = {
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const sql = `
-      SELECT cl.*, cc.category_name
-      FROM component_library cl
-      LEFT JOIN component_category cc ON cl.category_id = cc.category_id
+      ${COMPONENT_SELECT}
       ${whereClause}
       ORDER BY cl.updated_at DESC
       LIMIT ? OFFSET ?
@@ -47,12 +54,7 @@ const componentService = {
   },
 
   async getById(componentId) {
-    const sql = `
-      SELECT cl.*, cc.category_name
-      FROM component_library cl
-      LEFT JOIN component_category cc ON cl.category_id = cc.category_id
-      WHERE cl.component_id = ?
-    `;
+    const sql = `${COMPONENT_SELECT} WHERE cl.component_id = ?`;
     const result = await query(sql, [componentId]);
     return result.rows[0] || null;
   },
