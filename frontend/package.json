@@ -1,0 +1,11 @@
+{
+  "name": "pcb-bom-frontend",
+  "version": "0.1.0",
+  "description": "PCB元器件库与BOM管理助手 - 前端",
+  "scripts": {
+    "start": "npx http-server . -p 3001 -c-1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

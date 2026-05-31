@@ -1,0 +1,19 @@
+{
+  "name": "pcb-bom-backend",
+  "version": "0.1.0",
+  "description": "PCB元器件库与BOM管理助手 - 后端API服务",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed-dev.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.57.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "openai": "^4.93.0",
+    "sql.js": "^1.12.0"
+  }
+}

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PCB 元器件库管理助手</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- 顶部栏 -->
+    <header class="header">
+      <h1>PCB 元器件库管理助手</h1>
+      <span class="header-badge">AI Agent 驱动</span>
+      <div class="header-actions">
+        <button id="btnRefresh" title="刷新列表">刷新</button>
+        <button id="btnAdd" class="btn-primary" title="新增物料">+ 新增物料</button>
+        <button id="btnCategories" title="查看分类">分类管理</button>
+      </div>
+    </header>
+
+    <!-- 自然语言查询区 -->
+    <section class="query-section">
+      <div class="query-box">
+        <textarea id="nlInput" placeholder="用自然语言描述你的需求，例如：&#10;• 帮我查一下0805封装、10KΩ、±5%精度的贴片电阻有哪些？&#10;• 库里有没有SOT-23-5封装、3.3V输出的LDO？&#10;• 有哪些物料库存低于50？&#10;• 新增一个物料：内部料号CAP-0603-100nF-10%..." rows="3"></textarea>
+        <div class="query-actions">
+          <button id="btnQuery" class="btn-primary">查询</button>
+          <span class="query-hint">Enter 发送，Shift+Enter 换行</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 快捷示例 -->
+    <section class="quick-examples">
+      <span class="examples-label">快捷查询：</span>
+      <button class="example-chip" data-text="查一下0805封装的所有电阻">0805封装电阻</button>
+      <button class="example-chip" data-text="有哪些库存低于50的物料？">低库存物料</button>
+      <button class="example-chip" data-text="TI公司生产的IC物料有哪些？">TI公司IC</button>
+      <button class="example-chip" data-text="SOT-23-5封装、3.3V输出的LDO">3.3V LDO</button>
+    </section>
+
+    <!-- 状态栏 -->
+    <div id="statusBar" class="status-bar"></div>
+
+    <!-- 结果表格区 -->
+    <section class="result-section">
+      <div class="result-header">
+        <h2 id="resultTitle">物料列表</h2>
+        <span id="resultMeta"></span>
+      </div>
+      <div class="result-table-wrapper">
+        <table id="resultTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+        <div id="emptyState" class="empty-state">
+          <p>在上方输入自然语言查询，或点击"刷新"查看所有物料</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 弹窗：新增/编辑物料 -->
+    <div id="modalOverlay" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="modalTitle">新增物料</h3>
+          <button id="modalClose" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="componentForm">
+            <div class="form-row">
+              <label>内部料号 <span class="required">*</span></label>
+              <input name="internal_pn" placeholder="如 RES-0805-10K-5%" required>
+            </div>
+            <div class="form-row">
+              <label>分类</label>
+              <select name="category_id"></select>
+            </div>
+            <div class="form-row">
+              <label>物料描述</label>
+              <input name="description" placeholder="如 贴片电阻 10KΩ ±5% 1/8W">
+            </div>
+            <div class="form-row form-row-2col">
+              <div>
+                <label>封装名称</label>
+                <input name="footprint_name" placeholder="如 0805_L">
+              </div>
+              <div>
+                <label>原理图符号</label>
+                <input name="symbol_name" placeholder="">
+              </div>
+            </div>
+            <div class="form-row form-row-2col">
+              <div>
+                <label>制造商</label>
+                <input name="manufacturer" placeholder="如 Yageo">
+              </div>
+              <div>
+                <label>制造商料号 (MPN)</label>
+                <input name="manufacturer_pn" placeholder="">
+              </div>
+            </div>
+            <div class="form-row form-row-2col">
+              <div>
+                <label>供应商</label>
+                <input name="supplier" placeholder="如 立创商城">
+              </div>
+              <div>
+                <label>供应商料号 (SPN)</label>
+                <input name="supplier_pn" placeholder="">
+              </div>
+            </div>
+            <div class="form-row form-row-2col">
+              <div>
+                <label>单价 (元)</label>
+                <input name="unit_price" type="number" step="0.0001" placeholder="0.0000">
+              </div>
+              <div>
+                <label>库存数量</label>
+                <input name="stock_qty" type="number" step="1" placeholder="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <label>规格参数 (JSON)</label>
+              <textarea name="spec_json" rows="2" placeholder='如 {"resistance":"10KΩ","tolerance":"±5%"}'></textarea>
+            </div>
+            <div class="form-row">
+              <label>备注</label>
+              <textarea name="remark" rows="2" placeholder=""></textarea>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button id="modalCancel" class="btn-secondary">取消</button>
+          <button id="modalSubmit" class="btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗：分类管理 -->
+    <div id="categoryOverlay" class="modal-overlay hidden">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3>物料分类管理</h3>
+          <button id="categoryClose" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="categoryList" class="category-list"></div>
+          <form id="categoryForm" class="category-form">
+            <input name="category_code" placeholder="编码（如 RES）" required maxlength="20">
+            <input name="category_name" placeholder="名称（如 电阻）" required maxlength="100">
+            <select name="parent_id">
+              <option value="">顶级分类</option>
+            </select>
+            <button type="submit" class="btn-primary btn-sm">添加</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 弹窗：SQL 详情 -->
+    <div id="sqlOverlay" class="modal-overlay hidden">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3>LLM 生成的 SQL</h3>
+          <button id="sqlClose" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <pre id="sqlContent" class="sql-preview"></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/components/query-box.js"></script>
+  <script src="js/components/result-table.js"></script>
+  <script src="js/components/form-modal.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
