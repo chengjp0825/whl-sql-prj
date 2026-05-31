@@ -21,8 +21,8 @@ const api = {
   },
 
   // 自然语言查询（三层引擎）
-  nlQuery(question) {
-    return api.request('POST', '/query', { question });
+  nlQuery(question, mode) {
+    return api.request('POST', '/query', { question, mode: mode || 'fast' });
   },
 
   // 执行已确认的 SQL

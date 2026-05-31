@@ -1,14 +1,13 @@
 /**
- * 自然语言查询输入框组件
+ * 搜索栏组件
  */
 const QueryBox = {
   init() {
     this.input = document.getElementById('nlInput');
     this.btn = document.getElementById('btnQuery');
 
-    // 回车发送
     this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter') {
         e.preventDefault();
         this.submit();
       }
@@ -16,8 +15,8 @@ const QueryBox = {
 
     this.btn.addEventListener('click', () => this.submit());
 
-    // 快捷示例
-    document.querySelectorAll('.example-chip').forEach((chip) => {
+    // 提示芯片
+    document.querySelectorAll('.hint-chip').forEach((chip) => {
       chip.addEventListener('click', () => {
         this.input.value = chip.dataset.text;
         this.submit();

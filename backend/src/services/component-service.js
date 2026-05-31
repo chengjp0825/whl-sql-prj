@@ -22,6 +22,14 @@ const componentService = {
       where.push('(cl.internal_pn LIKE ? OR cl.description LIKE ?)');
       params.push(`%${filters.keyword}%`, `%${filters.keyword}%`);
     }
+    if (filters.stock_min != null) {
+      where.push('cl.stock_qty >= ?');
+      params.push(filters.stock_min);
+    }
+    if (filters.stock_max != null) {
+      where.push('cl.stock_qty <= ?');
+      params.push(filters.stock_max);
+    }
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 

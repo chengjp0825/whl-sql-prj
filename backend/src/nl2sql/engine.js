@@ -1,5 +1,5 @@
 const { create: createLLM } = require('../llm/factory');
-const { buildSchemaContext } = require('./schema-context');
+const { buildContext } = require('./context-builder');
 const { parse: ruleParse, buildQuery } = require('./rule-engine');
 const { getDb, saveToDisk } = require('../db/connection');
 const { guard } = require('../middleware/sql-guard');
@@ -8,17 +8,30 @@ const log = require('../utils/logger');
 const llm = createLLM();
 const MAX_RETRIES = 2;
 
+// LLM 上下文缓存（5分钟刷新一次）
+let cachedContext = null;
+let contextTimestamp = 0;
+const CONTEXT_TTL = 5 * 60 * 1000;
+
+async function getContext() {
+  if (cachedContext && (Date.now() - contextTimestamp < CONTEXT_TTL)) {
+    return cachedContext;
+  }
+  cachedContext = await buildContext();
+  contextTimestamp = Date.now();
+  log.info('engine', 'LLM 上下文已刷新');
+  return cachedContext;
+}
+
 // ---- 缓存层 ----
 const cache = {};
-const CACHE_TTL = 30 * 60 * 1000; // 30 分钟
+const CACHE_TTL = 30 * 60 * 1000;
 const CACHE_MAX = 200;
 
 function cacheGet(nl) {
   const key = nl.trim().toLowerCase();
   const entry = cache[key];
-  if (entry && (Date.now() - entry.time < CACHE_TTL)) {
-    return entry.result;
-  }
+  if (entry && (Date.now() - entry.time < CACHE_TTL)) return entry.result;
   delete cache[key];
   return null;
 }
@@ -26,7 +39,6 @@ function cacheGet(nl) {
 function cacheSet(nl, result) {
   const key = nl.trim().toLowerCase();
   cache[key] = { result, time: Date.now() };
-  // 超出上限清理最旧
   const keys = Object.keys(cache);
   if (keys.length > CACHE_MAX) {
     const oldest = keys.sort((a, b) => cache[a].time - cache[b].time)[0];
@@ -34,13 +46,16 @@ function cacheSet(nl, result) {
   }
 }
 
-// ---- 三层查询 ----
+// ---- 模式路由 ----
 
 /**
- * @returns {Promise<{sql, explanation, type, source, elapsed, columns, rows, rowCount, affectedRows}>}
+ * @param {string} naturalLanguage
+ * @param {object} options - { mode: 'fast' | 'smart' }
+ * @returns {Promise<{...}>}
  */
 async function query(naturalLanguage, options = {}) {
   const start = Date.now();
+  const mode = options.mode || 'fast';
 
   // === Layer 1: 规则引擎 ===
   const ruleResult = ruleParse(naturalLanguage);
@@ -51,21 +66,15 @@ async function query(naturalLanguage, options = {}) {
     guard(sql);
     const result = await executeSql(sql, 'SELECT');
 
-    // 缓存规则结果
-    const llmResult = { sql, explanation: ruleResult.explanation, type: 'SELECT' };
-    cacheSet(naturalLanguage, llmResult);
+    cacheSet(naturalLanguage, { sql, explanation: ruleResult.explanation, type: 'SELECT' });
 
     return {
-      ...result,
-      sql,
-      explanation: ruleResult.explanation,
-      type: 'SELECT',
-      source: 'rule',
-      elapsed: Date.now() - start,
+      ...result, sql, explanation: ruleResult.explanation,
+      type: 'SELECT', source: 'rule', elapsed: Date.now() - start,
     };
   }
 
-  log.info('engine', '规则未命中，检查缓存...');
+  log.info('engine', `规则未命中 (mode=${mode})，检查缓存...`);
 
   // === Layer 2: 缓存 ===
   const cached = cacheGet(naturalLanguage);
@@ -75,19 +84,25 @@ async function query(naturalLanguage, options = {}) {
     const result = await executeSql(cached.sql, cached.type);
 
     return {
-      ...result,
-      sql: cached.sql,
-      explanation: cached.explanation,
-      type: cached.type,
-      source: 'cache',
-      elapsed: Date.now() - start,
+      ...result, sql: cached.sql, explanation: cached.explanation,
+      type: cached.type, source: 'cache', elapsed: Date.now() - start,
     };
   }
 
-  log.info('engine', '缓存未命中，调用 LLM...');
+  // === Fast mode: 到此为止 ===
+  if (mode === 'fast') {
+    return {
+      columns: [], rows: [], rowCount: 0, affectedRows: null,
+      sql: '', explanation: '规则和缓存均未命中',
+      type: 'SELECT', source: 'none', elapsed: Date.now() - start,
+      suggestion: '试试切换到 AI 智能搜索模式，或换个更具体的描述。如：封装名、分类名、制造商、料号。',
+    };
+  }
 
-  // === Layer 3: LLM ===
-  const schemaContext = buildSchemaContext();
+  // === Smart mode: Layer 3 = LLM ===
+  log.info('engine', '缓存未命中，调用 LLM (smart mode)...');
+
+  const schemaContext = await getContext();
   let llmResult = await llm.nl2sql(naturalLanguage, schemaContext, options);
   let lastSql = llmResult.sql;
   guard(lastSql);
@@ -95,9 +110,8 @@ async function query(naturalLanguage, options = {}) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const result = await executeSql(lastSql, llmResult.type);
-      log.info('engine', `LLM 成功 · ${llmResult.explanation}`, { sql: lastSql.substring(0, 120), rows: result.rowCount });
+      log.info('engine', `LLM 成功`, { sql: lastSql.substring(0, 120), rows: result.rowCount });
 
-      // LLM 结果写入缓存
       cacheSet(naturalLanguage, { sql: lastSql, explanation: llmResult.explanation, type: llmResult.type });
 
       return {
@@ -106,17 +120,18 @@ async function query(naturalLanguage, options = {}) {
         explanation: llmResult.explanation,
         type: llmResult.type,
         source: 'llm',
+        suggestion: llmResult.suggestion || null,
         elapsed: Date.now() - start,
       };
     } catch (err) {
-      log.warn('engine', `SQL执行失败，重试 ${attempt + 1}/${MAX_RETRIES}`, { sql: lastSql.substring(0, 120), error: err.message });
+      log.warn('engine', `SQL执行失败，重试 ${attempt + 1}/${MAX_RETRIES}`, { error: err.message });
       if (attempt < MAX_RETRIES - 1) {
-        const fixPrompt = `以下SQLite SQL执行出错，请修正。\nSQL: ${lastSql}\n错误: ${err.message}\n请返回修正后的SQL。注意使用SQLite语法！`;
+        const fixPrompt = `以下SQLite SQL执行出错，请修正。\nSQL: ${lastSql}\n错误: ${err.message}\n请返回修正后的SQL。`;
         llmResult = await llm.nl2sql(fixPrompt, schemaContext, options);
         guard(llmResult.sql);
         lastSql = llmResult.sql;
       } else {
-        throw new Error(`SQL执行失败（已重试${MAX_RETRIES}次）: ${err.message}\n最后SQL: ${lastSql}`);
+        throw new Error(`SQL执行失败（已重试${MAX_RETRIES}次）: ${err.message}`);
       }
     }
   }
@@ -126,10 +141,7 @@ async function query(naturalLanguage, options = {}) {
 
 async function executeSql(sql, type) {
   const d = await getDb();
-  let columns = [];
-  let rows = [];
-  let rowCount = 0;
-  let affectedRows = null;
+  let columns = [], rows = [], rowCount = 0, affectedRows = null;
 
   if (type === 'SELECT') {
     const execResult = d.exec(sql);

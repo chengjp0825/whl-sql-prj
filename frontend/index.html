@@ -3,224 +3,237 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PCB 元器件库管理助手</title>
+  <title>PCB 元器件库</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="app">
 
-    <!-- 顶部栏 -->
-    <header class="header">
-      <h1>PCB 元器件库管理助手</h1>
-      <span class="header-badge">AI Agent 驱动</span>
-      <div class="header-actions">
-        <button id="btnRefresh" title="刷新列表">刷新</button>
-        <button id="btnAdd" class="btn-primary" title="新增物料">+ 新增物料</button>
-        <button id="btnCategories" title="查看分类">分类管理</button>
+  <!-- 顶部导航 -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="logo">
+        <span class="logo-mark">PCB</span>
+        <span class="logo-text">元器件库</span>
       </div>
-    </header>
+      <div class="topbar-links">
+        <button id="btnCategories" class="link-btn">分类管理</button>
+        <button id="btnRefresh" class="link-btn">刷新</button>
+      </div>
+    </div>
+  </header>
 
-    <!-- 自然语言查询区 -->
-    <section class="query-section">
-      <div class="query-box">
-        <textarea id="nlInput" placeholder="自然语言描述需求，例如：&#10;• 0805封装 10KΩ ±5% 贴片电阻&#10;• SOT-23-5封装 3.3V LDO&#10;• 库存低于50的物料&#10;• TI公司 IC物料" rows="2"></textarea>
-        <div class="query-actions">
-          <button id="btnQuery" class="btn-primary">查询</button>
-          <div class="query-examples">
-            <button class="example-chip" data-text="0805封装电阻">0805电阻</button>
-            <button class="example-chip" data-text="库存低于50">低库存</button>
-            <button class="example-chip" data-text="TI公司IC">TI IC</button>
+  <!-- 搜索栏 Hero -->
+  <div class="search-hero">
+    <div class="search-hero-inner">
+      <div class="search-bar-wrap">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="nlInput" type="text" placeholder="搜索元器件，如：0805封装 10KΩ 贴片电阻">
+        <div class="search-mode">
+          <button class="mode-option active" data-mode="fast">快速</button>
+          <button class="mode-option" data-mode="smart">AI</button>
+        </div>
+        <button id="btnQuery" class="search-btn">搜索</button>
+      </div>
+      <div id="aiDisclaimer" class="ai-disclaimer hidden">AI 生成内容仅供参考，请以实际数据为准，关键选型建议人工核实。</div>
+      <div class="search-hints">
+        <span>试试：</span>
+        <button class="hint-chip" data-text="0805封装电阻">0805 电阻</button>
+        <button class="hint-chip" data-text="库存低于50">低库存</button>
+        <button class="hint-chip" data-text="TI公司 IC">TI IC</button>
+        <button class="hint-chip" data-text="SOT-23 LDO">SOT-23 LDO</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主体：侧边栏 + 内容 -->
+  <div class="main-layout">
+
+    <!-- 左侧筛选面板 -->
+    <aside class="sidebar">
+      <div class="side-section">
+        <div class="side-section-title">浏览</div>
+        <ul class="side-menu">
+          <li><a href="#" class="side-link active" data-action="all">全部物料</a></li>
+          <li><a href="#" class="side-link" data-action="low-stock">低库存 <span class="side-count" id="lowStockCount">-</span></a></li>
+        </ul>
+      </div>
+
+      <div class="side-section">
+        <div class="side-section-title">分类</div>
+        <ul class="side-menu" id="sidebarCategories"></ul>
+      </div>
+
+      <div class="side-section">
+        <div class="side-section-title">筛选</div>
+        <div class="side-filters">
+          <label class="side-label">封装</label>
+          <select id="filterFootprint" class="side-select"><option value="">全部</option></select>
+
+          <label class="side-label">分类</label>
+          <select id="filterCategory" class="side-select"><option value="">全部</option></select>
+
+          <label class="side-label">制造商</label>
+          <input id="filterMfg" class="side-input" placeholder="输入制造商">
+
+          <label class="side-label">库存范围</label>
+          <div class="side-range">
+            <input id="filterStockMin" type="number" placeholder="≥" class="side-input" style="width:48%">
+            <span class="range-sep">—</span>
+            <input id="filterStockMax" type="number" placeholder="≤" class="side-input" style="width:48%">
           </div>
-          <span class="query-hint">Enter 发送 · Shift+Enter 换行</span>
-        </div>
-      </div>
-    </section>
 
-    <!-- 过滤器栏（即时查询，不调LLM） -->
-    <section class="filter-bar">
-      <div class="filter-row">
-        <div class="filter-item">
-          <label>封装</label>
-          <select id="filterFootprint">
-            <option value="">全部</option>
-          </select>
-        </div>
-        <div class="filter-item">
-          <label>分类</label>
-          <select id="filterCategory">
-            <option value="">全部</option>
-          </select>
-        </div>
-        <div class="filter-item">
-          <label>制造商</label>
-          <input id="filterMfg" placeholder="如 Yageo">
-        </div>
-        <div class="filter-item filter-range">
-          <label>库存</label>
-          <div class="range-inputs">
-            <input id="filterStockMin" type="number" placeholder="最小" style="width:70px">
-            <span>~</span>
-            <input id="filterStockMax" type="number" placeholder="最大" style="width:70px">
+          <div class="side-filter-actions">
+            <button id="btnFilter" class="btn btn-primary btn-block btn-sm">应用筛选</button>
+            <button id="btnFilterReset" class="btn btn-outline btn-block btn-sm">重置</button>
           </div>
         </div>
-        <div class="filter-actions">
-          <button id="btnFilter" class="btn-primary btn-sm">筛选</button>
-          <button id="btnFilterReset" class="btn-sm">重置</button>
+      </div>
+    </aside>
+
+    <!-- 右侧内容 -->
+    <main class="content">
+
+      <!-- 状态栏 -->
+      <div id="statusBar" class="status-bar"></div>
+
+      <!-- AI 建议 -->
+      <div id="suggestionBox" class="suggestion-box hidden">
+        <div class="suggestion-header">💡 AI 建议</div>
+        <div id="suggestionContent" class="suggestion-content"></div>
+      </div>
+
+      <!-- 工具栏 -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <h2 id="resultTitle">全部物料</h2>
+          <span id="resultMeta" class="result-count"></span>
+        </div>
+        <div class="toolbar-right">
+          <button id="btnAdd" class="btn btn-primary btn-sm">+ 新增物料</button>
         </div>
       </div>
-    </section>
 
-    <!-- 状态栏 -->
-    <div id="statusBar" class="status-bar"></div>
-
-    <!-- 结果表格区 -->
-    <section class="result-section">
-      <div class="result-header">
-        <h2 id="resultTitle">物料列表</h2>
-        <span id="resultMeta"></span>
-      </div>
-      <div class="result-table-wrapper">
+      <!-- 表格 -->
+      <div class="table-container">
         <table id="resultTable">
           <thead></thead>
           <tbody></tbody>
         </table>
         <div id="emptyState" class="empty-state">
-          <p>在上方输入自然语言查询，或点击"刷新"查看所有物料</p>
+          <div class="empty-icon">📦</div>
+          <p>暂无物料数据</p>
+          <p class="empty-sub">点击"新增物料"或使用搜索栏查找</p>
         </div>
       </div>
-    </section>
 
-    <!-- 弹窗：新增/编辑物料 -->
-    <div id="modalOverlay" class="modal-overlay hidden">
-      <div class="modal">
-        <div class="modal-header">
-          <h3 id="modalTitle">新增物料</h3>
-          <button id="modalClose" class="btn-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <form id="componentForm">
-            <div class="form-row">
-              <label>内部料号 <span class="required">*</span></label>
-              <input name="internal_pn" placeholder="如 RES-0805-10K-5%" required>
-            </div>
-            <div class="form-row">
-              <label>分类</label>
-              <select name="category_id"></select>
-            </div>
-            <div class="form-row">
-              <label>物料描述</label>
-              <input name="description" placeholder="如 贴片电阻 10KΩ ±5% 1/8W">
-            </div>
-            <div class="form-row form-row-2col">
-              <div>
-                <label>封装名称</label>
-                <input name="footprint_name" placeholder="如 0805_L">
-              </div>
-              <div>
-                <label>原理图符号</label>
-                <input name="symbol_name" placeholder="">
-              </div>
-            </div>
-            <div class="form-row form-row-2col">
-              <div>
-                <label>制造商</label>
-                <input name="manufacturer" placeholder="如 Yageo">
-              </div>
-              <div>
-                <label>制造商料号 (MPN)</label>
-                <input name="manufacturer_pn" placeholder="">
-              </div>
-            </div>
-            <div class="form-row form-row-2col">
-              <div>
-                <label>供应商</label>
-                <input name="supplier" placeholder="如 立创商城">
-              </div>
-              <div>
-                <label>供应商料号 (SPN)</label>
-                <input name="supplier_pn" placeholder="">
-              </div>
-            </div>
-            <div class="form-row form-row-2col">
-              <div>
-                <label>单价 (元)</label>
-                <input name="unit_price" type="number" step="0.0001" placeholder="0.0000">
-              </div>
-              <div>
-                <label>库存数量</label>
-                <input name="stock_qty" type="number" step="1" placeholder="0">
-              </div>
-            </div>
-            <div class="form-row">
-              <label>规格参数 (JSON)</label>
-              <textarea name="spec_json" rows="2" placeholder='如 {"resistance":"10KΩ","tolerance":"±5%"}'></textarea>
-            </div>
-            <div class="form-row">
-              <label>备注</label>
-              <textarea name="remark" rows="2" placeholder=""></textarea>
-            </div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button id="modalCancel" class="btn-secondary">取消</button>
-          <button id="modalSubmit" class="btn-primary">保存</button>
-        </div>
+    </main>
+  </div>
+
+  <!-- ===== 弹窗 ===== -->
+
+  <!-- 新增/编辑物料 -->
+  <div id="modalOverlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">新增物料</h3>
+        <button id="modalClose" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="componentForm">
+          <div class="form-row">
+            <label>内部料号 <span class="required">*</span></label>
+            <input name="internal_pn" placeholder="如 RES-0805-10K-5%" required>
+          </div>
+          <div class="form-row">
+            <label>分类</label>
+            <select name="category_id"></select>
+          </div>
+          <div class="form-row">
+            <label>物料描述</label>
+            <input name="description" placeholder="如 贴片电阻 10KΩ ±5% 1/8W">
+          </div>
+          <div class="form-row form-row-2col">
+            <div><label>封装</label><input name="footprint_name" placeholder="0805_L"></div>
+            <div><label>符号</label><input name="symbol_name" placeholder=""></div>
+          </div>
+          <div class="form-row form-row-2col">
+            <div><label>制造商</label><input name="manufacturer" placeholder="Yageo"></div>
+            <div><label>制造商料号</label><input name="manufacturer_pn" placeholder=""></div>
+          </div>
+          <div class="form-row form-row-2col">
+            <div><label>供应商</label><input name="supplier" placeholder="立创商城"></div>
+            <div><label>供应商料号</label><input name="supplier_pn" placeholder=""></div>
+          </div>
+          <div class="form-row form-row-2col">
+            <div><label>单价 (元)</label><input name="unit_price" type="number" step="0.0001" placeholder="0.0000"></div>
+            <div><label>库存</label><input name="stock_qty" type="number" step="1" placeholder="0"></div>
+          </div>
+          <div class="form-row">
+            <label>规格参数 (JSON)</label>
+            <textarea name="spec_json" rows="2" placeholder='{"resistance":"10KΩ","tolerance":"±5%"}'></textarea>
+          </div>
+          <div class="form-row">
+            <label>备注</label>
+            <textarea name="remark" rows="2"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="modalCancel" class="btn btn-outline">取消</button>
+        <button id="modalSubmit" class="btn btn-primary">保存</button>
       </div>
     </div>
+  </div>
 
-    <!-- 弹窗：分类管理 -->
-    <div id="categoryOverlay" class="modal-overlay hidden">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <h3>物料分类管理</h3>
-          <button id="categoryClose" class="btn-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div id="categoryList" class="category-list"></div>
-          <form id="categoryForm" class="category-form">
-            <input name="category_code" placeholder="编码（如 RES）" required maxlength="20">
-            <input name="category_name" placeholder="名称（如 电阻）" required maxlength="100">
-            <select name="parent_id">
-              <option value="">顶级分类</option>
-            </select>
-            <button type="submit" class="btn-primary btn-sm">添加</button>
-          </form>
-        </div>
+  <!-- 分类管理 -->
+  <div id="categoryOverlay" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>分类管理</h3>
+        <button id="categoryClose" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="categoryList" class="cat-list"></div>
+        <form id="categoryForm" class="cat-form">
+          <input name="category_code" placeholder="编码 (如 RES)" required maxlength="20">
+          <input name="category_name" placeholder="名称 (如 电阻)" required maxlength="100">
+          <select name="parent_id"><option value="">顶级分类</option></select>
+          <button type="submit" class="btn btn-primary btn-sm">添加</button>
+        </form>
       </div>
     </div>
+  </div>
 
-    <!-- 弹窗：SQL 详情 -->
-    <div id="sqlOverlay" class="modal-overlay hidden">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <h3>LLM 生成的 SQL</h3>
-          <button id="sqlClose" class="btn-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <pre id="sqlContent" class="sql-preview"></pre>
-        </div>
+  <!-- SQL 预览 -->
+  <div id="sqlOverlay" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>生成的 SQL</h3>
+        <button id="sqlClose" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <pre id="sqlContent" class="sql-preview"></pre>
       </div>
     </div>
+  </div>
 
-    <!-- 弹窗：写操作确认 -->
-    <div id="confirmOverlay" class="modal-overlay hidden">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <h3>⚠️ 确认执行写操作</h3>
-          <button id="confirmClose" class="btn-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <p class="confirm-desc" id="confirmDesc"></p>
-          <p class="confirm-meta" id="confirmMeta"></p>
-          <pre id="confirmSql" class="sql-preview"></pre>
-        </div>
-        <div class="modal-footer">
-          <button id="confirmCancel" class="btn-secondary">取消</button>
-          <button id="confirmOk" class="btn-danger">确认执行</button>
-        </div>
+  <!-- 写操作确认 -->
+  <div id="confirmOverlay" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>确认执行</h3>
+        <button id="confirmClose" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmDesc" class="confirm-desc"></p>
+        <p id="confirmMeta" class="confirm-meta"></p>
+        <pre id="confirmSql" class="sql-preview"></pre>
+      </div>
+      <div class="modal-footer">
+        <button id="confirmCancel" class="btn btn-outline">取消</button>
+        <button id="confirmOk" class="btn btn-danger">确认执行</button>
       </div>
     </div>
-
   </div>
 
   <script src="js/api.js"></script>

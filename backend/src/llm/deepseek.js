@@ -15,7 +15,7 @@ async function nl2sql(naturalLanguage, schemaContext, options = {}) {
 
   const resp = await client.chat.completions.create({
     model,
-    max_tokens: 2048,
+    max_tokens: 4096,
     temperature: 0,
     messages: [
       {
@@ -36,7 +36,12 @@ ${schemaContext}
 ## 输出格式
 你必须严格按以下 JSON 格式输出，不要输出任何其他内容：
 
-{"sql": "生成的SQL语句", "explanation": "简要解释", "type": "SELECT|INSERT|UPDATE|DELETE"}
+{
+  "sql": "生成的SQL语句",
+  "explanation": "简要解释",
+  "type": "SELECT|INSERT|UPDATE|DELETE",
+  "suggestion": "基于查询意图和SQL执行结果，提供专业建议。例如：替代物料推荐、选型注意事项、参数解释、如果库里没有结果则建议替代方案。建议要具体，不要泛泛而谈。如果只是简单查询（查库存、查价格等），suggestion可为空字符串。"
+}
 
 只输出这一行 JSON，不要用 markdown 代码块包裹。`,
       },
@@ -48,6 +53,9 @@ ${schemaContext}
   });
 
   const content = resp.choices[0]?.message?.content?.trim() || '';
+  if (process.env.LOG_LEVEL === 'debug') {
+    console.log('[deepseek] LLM 返回内容 (前300字符):', content.substring(0, 300));
+  }
 
   // 尝试解析 JSON
   try {
@@ -63,6 +71,7 @@ ${schemaContext}
         sql: parsed.sql,
         explanation: parsed.explanation || '',
         type: parsed.type,
+        suggestion: parsed.suggestion || '',
       };
     }
   } catch (_) {

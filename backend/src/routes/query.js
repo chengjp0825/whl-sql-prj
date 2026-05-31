@@ -12,13 +12,13 @@ const { guard } = require('../middleware/sql-guard');
  */
 router.post('/', async (req, res, next) => {
   try {
-    const { question } = req.body;
+    const { question, mode } = req.body;
 
     if (!question || !question.trim()) {
       return res.status(400).json({ error: '请输入查询内容' });
     }
 
-    const result = await nlQuery(question.trim());
+    const result = await nlQuery(question.trim(), { mode: mode || 'fast' });
 
     // 写操作预览
     if (result.type !== 'SELECT') {
@@ -41,6 +41,7 @@ router.post('/', async (req, res, next) => {
       type: result.type,
       source: result.source,
       elapsed: result.elapsed,
+      suggestion: result.suggestion || '',
       columns: result.columns,
       rows: result.rows,
       rowCount: result.rowCount,

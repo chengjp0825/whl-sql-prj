@@ -2,52 +2,163 @@
  * 主应用逻辑
  */
 const App = {
-  currentSql: '',
-  pendingWrite: null, // { sql, type, explanation }
+  pendingWrite: null,
+  allCategories: [],
+  allComponents: [],
+  _categoryCounts: null,
+  searchMode: 'fast',
 
   async init() {
     QueryBox.init();
     ResultTable.init();
     FormModal.init();
-    this._initFilters();
+    this._initModeToggle();
+    this._initSidebar();
     this._initButtons();
     this._initModals();
-    await this.refresh();
+    await this._loadData();
+    // 事件委托：动态生成的 #showSql 点击冒泡到 statusBar
+    document.getElementById('statusBar').addEventListener('click', (e) => {
+      if (e.target.id === 'showSql') { e.preventDefault(); this._showSql(this._latestSql); }
+    });
   },
 
-  // ---- 过滤器栏 ----
+  // ---- 搜索模式 ----
 
-  async _initFilters() {
-    // 加载分类下拉（仅一级分类）
-    try {
-      const cats = await api.listCategories();
-      const topCats = cats.filter((c) => !c.parent_id);
-      const catSelect = document.getElementById('filterCategory');
-      topCats.forEach((c) => {
-        catSelect.innerHTML += `<option value="${c.category_id}">${c.category_code} - ${c.category_name}</option>`;
+  _initModeToggle() {
+    document.querySelectorAll('.mode-option').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-option').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.searchMode = btn.dataset.mode;
+        // 切换 AI 模式时显示/隐藏免责声明
+        const dis = document.getElementById('aiDisclaimer');
+        if (this.searchMode === 'smart') dis.classList.remove('hidden');
+        else dis.classList.add('hidden');
       });
-    } catch (_) {}
-
-    // 加载封装下拉（从物料去重）
-    try {
-      const data = await api.listComponents({ pageSize: 1000 });
-      const fps = [...new Set(data.rows.map((r) => r.footprint_name).filter(Boolean))].sort();
-      const fpSelect = document.getElementById('filterFootprint');
-      fps.forEach((f) => {
-        fpSelect.innerHTML += `<option value="${f}">${f}</option>`;
-      });
-    } catch (_) {}
+    });
   },
+
+  // ---- 侧边栏 ----
+
+  _initSidebar() {
+    document.querySelector('[data-action="all"]').addEventListener('click', (e) => {
+      e.preventDefault();
+      this._setActiveNav('all');
+      this._applySidebarFilter(null);
+    });
+    document.querySelector('[data-action="low-stock"]').addEventListener('click', (e) => {
+      e.preventDefault();
+      this._setActiveNav('low-stock');
+      this._filterByParams({ stock_max: 50 });
+    });
+  },
+
+  _setActiveNav(action) {
+    document.querySelectorAll('.side-link').forEach((el) => el.classList.remove('active'));
+    // 匹配 data-action（静态链接）或 data-cat（动态分类链接）
+    const el = document.querySelector(`[data-action="${action}"]`) || document.querySelector(`[data-cat="${action.replace('cat-', '')}"]`);
+    if (el) el.classList.add('active');
+  },
+
+  _renderSidebarCategories() {
+    const container = document.getElementById('sidebarCategories');
+    if (!this._categoryCounts) this._precomputeCategoryCounts();
+    const topCats = this.allCategories.filter((c) => !c.parent_id);
+    container.innerHTML = topCats.map((c) =>
+      `<li><a href="#" class="side-link" data-cat="${c.category_id}" data-code="${c.category_code}">
+        ${c.category_name}
+        <span class="side-count">${this._categoryCounts.get(c.category_id) || 0}</span>
+      </a></li>`
+    ).join('');
+
+    container.querySelectorAll('.side-link').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        this._setActiveNav('cat-' + el.dataset.cat);
+        this._applySidebarFilter(el.dataset.cat);
+      });
+    });
+  },
+
+  _precomputeCategoryCounts() {
+    // 一次遍历替代 O(N×M)：构建 childMap + countMap
+    const childMap = new Map();
+    for (const c of this.allCategories) {
+      if (c.parent_id) {
+        if (!childMap.has(c.parent_id)) childMap.set(c.parent_id, []);
+        childMap.get(c.parent_id).push(c.category_id);
+      }
+    }
+    const countMap = new Map();
+    for (const comp of this.allComponents) {
+      const ids = [comp.category_id, ...(childMap.get(comp.category_id) || [])];
+      for (const id of ids) {
+        countMap.set(id, (countMap.get(id) || 0) + 1);
+      }
+    }
+    this._categoryCounts = new Map();
+    for (const cat of this.allCategories) {
+      this._categoryCounts.set(cat.category_id, countMap.get(cat.category_id) || 0);
+    }
+  },
+
+  _applySidebarFilter(categoryId) {
+    if (!categoryId) {
+      this.refresh();
+      return;
+    }
+    this._filterByParams({ category_id: categoryId });
+  },
+
+  // ---- 数据加载 ----
+
+  async _loadData() {
+    try {
+      const [compData, cats] = await Promise.all([
+        api.listComponents({ pageSize: 1000 }),
+        api.listCategories(),
+      ]);
+      this.allComponents = compData.rows || [];
+      this.allCategories = cats || [];
+      this._categoryCounts = null; // 强制重建
+      this._renderSidebarCategories();
+      this._initFilterDropdowns();
+      this._updateLowStockBadge();
+      this.refresh();
+    } catch (err) {
+      this.showStatus(`加载失败: ${err.message}（请检查后端是否已启动）`, 'error');
+    }
+  },
+
+  _updateLowStockBadge() {
+    const count = this.allComponents.filter((c) => c.stock_qty != null && c.stock_qty < 50).length;
+    document.getElementById('lowStockCount').textContent = count;
+  },
+
+  _initFilterDropdowns() {
+    const catSelect = document.getElementById('filterCategory');
+    const topCats = this.allCategories.filter((c) => !c.parent_id);
+    catSelect.innerHTML += topCats.map((c) =>
+      `<option value="${c.category_id}">${c.category_code} - ${c.category_name}</option>`
+    ).join('');
+
+    const fps = [...new Set(this.allComponents.map((r) => r.footprint_name).filter(Boolean))].sort();
+    const fpSelect = document.getElementById('filterFootprint');
+    fpSelect.innerHTML += fps.map((f) => `<option value="${f}">${f}</option>`).join('');
+  },
+
+  // ---- 按钮 ----
 
   _initButtons() {
-    document.getElementById('btnRefresh').addEventListener('click', () => this.refresh());
+    document.getElementById('btnRefresh').addEventListener('click', () => this._loadData());
     document.getElementById('btnAdd').addEventListener('click', () => FormModal.showCreate());
     document.getElementById('btnCategories').addEventListener('click', () => this._showCategories());
-    document.getElementById('btnFilter').addEventListener('click', () => this._applyFilters());
+    document.getElementById('btnFilter').addEventListener('click', () => this._applyFilterBar());
     document.getElementById('btnFilterReset').addEventListener('click', () => this._resetFilters());
   },
 
-  async _applyFilters() {
+  _applyFilterBar() {
     const params = {};
     const fp = document.getElementById('filterFootprint').value;
     const cat = document.getElementById('filterCategory').value;
@@ -58,14 +169,17 @@ const App = {
     if (fp) params.footprint_name = fp;
     if (cat) params.category_id = cat;
     if (mfg) params.manufacturer = mfg;
+    if (stockMin) params.stock_min = stockMin;
+    if (stockMax) params.stock_max = stockMax;
+    this._filterByParams(params);
+  },
 
+  async _filterByParams(params) {
     try {
       const data = await api.listComponents(Object.assign(params, { pageSize: 100 }));
       ResultTable.renderList(data);
-      this.showStatus(`过滤器 · ${data.rowCount} 条结果`, 'success');
-    } catch (err) {
-      this.showStatus(err.message, 'error');
-    }
+      this.showStatus(`筛选 · ${data.rowCount} 条`, 'success');
+    } catch (err) { this.showStatus(err.message, 'error'); }
   },
 
   _resetFilters() {
@@ -74,30 +188,23 @@ const App = {
     document.getElementById('filterMfg').value = '';
     document.getElementById('filterStockMin').value = '';
     document.getElementById('filterStockMax').value = '';
+    this._setActiveNav('all');
     this.refresh();
   },
 
-  // ---- 弹窗初始化 ----
+  // ---- 弹窗 ----
 
   _initModals() {
-    // SQL 弹窗
-    document.getElementById('sqlClose').addEventListener('click', () => {
-      document.getElementById('sqlOverlay').classList.add('hidden');
-    });
-    document.getElementById('sqlOverlay').addEventListener('click', (e) => {
-      if (e.target === document.getElementById('sqlOverlay')) {
-        document.getElementById('sqlOverlay').classList.add('hidden');
-      }
-    });
-    // 分类弹窗
-    document.getElementById('categoryClose').addEventListener('click', () => {
-      document.getElementById('categoryOverlay').classList.add('hidden');
-    });
-    document.getElementById('categoryOverlay').addEventListener('click', (e) => {
-      if (e.target === document.getElementById('categoryOverlay')) {
-        document.getElementById('categoryOverlay').classList.add('hidden');
-      }
-    });
+    // 通用：点击遮罩关闭
+    const bindOverlayClose = (overlayId, closeBtnId) => {
+      document.getElementById(closeBtnId).addEventListener('click', () => this._hideModal(overlayId));
+      document.getElementById(overlayId).addEventListener('click', (e) => {
+        if (e.target.id === overlayId) this._hideModal(overlayId);
+      });
+    };
+    bindOverlayClose('sqlOverlay', 'sqlClose');
+    bindOverlayClose('categoryOverlay', 'categoryClose');
+
     document.getElementById('categoryForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -106,24 +213,19 @@ const App = {
       try {
         await api.createCategory(data);
         App.showStatus('分类添加成功', 'success');
-        FormModal.loadCategories();
-        App._showCategories();
+        App._loadData(); // 重建侧边栏 + 刷新列表
         e.target.reset();
-      } catch (err) {
-        App.showStatus(err.message, 'error');
-      }
+      } catch (err) { App.showStatus(err.message, 'error'); }
     });
-    // 写操作确认弹窗
-    document.getElementById('confirmClose').addEventListener('click', () => {
-      document.getElementById('confirmOverlay').classList.add('hidden');
-    });
-    document.getElementById('confirmCancel').addEventListener('click', () => {
-      document.getElementById('confirmOverlay').classList.add('hidden');
-    });
+
+    document.getElementById('confirmClose').addEventListener('click', () => this._hideModal('confirmOverlay'));
+    document.getElementById('confirmCancel').addEventListener('click', () => this._hideModal('confirmOverlay'));
     document.getElementById('confirmOk').addEventListener('click', () => this._executeWrite());
   },
 
-  // ---- 写操作确认 ----
+  _hideModal(id) { document.getElementById(id).classList.add('hidden'); },
+
+  // ---- 写操作 ----
 
   _showConfirm(data) {
     this.pendingWrite = data;
@@ -138,58 +240,94 @@ const App = {
     if (!this.pendingWrite) return;
     try {
       const result = await api.executeQuery(this.pendingWrite.sql, this.pendingWrite.type);
-      document.getElementById('confirmOverlay').classList.add('hidden');
+      this._hideModal('confirmOverlay');
       this.showStatus(`✅ ${result.message}`, 'success');
       this.pendingWrite = null;
-      this.refresh();
-    } catch (err) {
-      this.showStatus(err.message, 'error');
-    }
+      this._loadData();
+    } catch (err) { this.showStatus(err.message, 'error'); }
   },
 
-  // ---- 自然语言查询 ----
+  // ---- NL 查询 ----
 
   async handleQuery(text) {
-    this.showStatus('查询中...', '');
+    this._setLoading(true);
+    this._hideSuggestion();
     try {
-      const result = await api.nlQuery(text);
+      const result = await api.nlQuery(text, this.searchMode);
+      if (result.requiresConfirmation) { this._setLoading(false); this._showConfirm(result); return; }
 
-      // 写操作预览
-      if (result.requiresConfirmation) {
-        this._showConfirm(result);
-        return;
+      this._latestSql = result.sql;
+      const srcLabel = { rule: '规则命中', cache: '缓存命中', llm: 'LLM', none: '无结果' }[result.source] || result.source;
+      const isEmpty = result.rowCount === 0;
+
+      this.showStatus(
+        `<span class="status-source ${result.source || ''}">${srcLabel}</span> ${result.elapsed}ms · ${result.rowCount} 条` +
+        ` · <a href="#" id="showSql">SQL</a>`,
+        isEmpty ? '' : 'success'
+      );
+
+      // 带建议的空结果：明确声明 + 突出显示建议
+      if (isEmpty && result.suggestion) {
+        ResultTable._showEmpty('库里暂无匹配的物料');
+        this._showSuggestion(result.suggestion, true);
+      } else if (result.suggestion) {
+        this._showSuggestion(result.suggestion, false);
       }
 
-      this.currentSql = result.sql;
+      if (!isEmpty) ResultTable.render(result);
+    } catch (err) { this.showStatus(err.message, 'error'); }
+    this._setLoading(false);
+  },
 
-      // 来源标记
-      const srcLabel = { rule: '规则命中', cache: '缓存命中', llm: 'LLM' }[result.source] || result.source;
-      const srcClass = result.source;
-      this.showStatus(
-        `${result.explanation || '查询完成'} · <span class="status-source ${srcClass}">${srcLabel}</span> · ${result.elapsed}ms` +
-        ` — <a href="#" id="showSql">查看SQL</a>`,
-        'success'
-      );
-      document.getElementById('showSql').addEventListener('click', () => this._showSql(result.sql));
-
-      ResultTable.render(result);
-    } catch (err) {
-      this.showStatus(err.message, 'error');
+  _setLoading(loading) {
+    const btn = document.getElementById('btnQuery');
+    const input = document.getElementById('nlInput');
+    // 禁用所有操作按钮
+    document.querySelectorAll('button, .side-link, .hint-chip, .mode-option').forEach((el) => {
+      if (loading) el.setAttribute('disabled', '');
+      else el.removeAttribute('disabled');
+    });
+    // 搜索按钮动画
+    if (loading) {
+      btn.textContent = '搜索中...';
+      btn.style.opacity = '0.7';
+      btn.style.pointerEvents = 'none';
+      input.style.opacity = '0.6';
+      this.showStatus(this.searchMode === 'smart'
+        ? '<span class="loading-dot">AI 正在分析</span><span class="loading-dots"></span>'
+        : '查询中...', '');
+    } else {
+      btn.textContent = '搜索';
+      btn.style.opacity = '1';
+      btn.style.pointerEvents = '';
+      input.style.opacity = '1';
     }
   },
 
-  // 刷新列表
-  async refresh() {
-    try {
-      const data = await api.listComponents({ pageSize: 100 });
-      ResultTable.renderList(data);
-      this.showStatus('', '');
-    } catch (err) {
-      ResultTable.renderList({ rows: [], rowCount: 0 });
-      this.showStatus(`加载失败: ${err.message}（请检查后端是否已启动）`, 'error');
+  _showSuggestion(text, prominent) {
+    const box = document.getElementById('suggestionBox');
+    document.getElementById('suggestionContent').textContent = text;
+    const header = box.querySelector('.suggestion-header');
+    header.textContent = prominent ? '库里暂无匹配物料 · AI 建议' : '💡 AI 建议';
+    box.classList.remove('hidden');
+    if (prominent) {
+      box.classList.add('suggestion-prominent');
+    } else {
+      box.classList.remove('suggestion-prominent');
     }
   },
 
+  _hideSuggestion() {
+    document.getElementById('suggestionBox').classList.add('hidden');
+  },
+
+  // 列表刷新（纯客户端渲染，不发 API）
+  refresh() {
+    ResultTable.renderList({ rows: this.allComponents, rowCount: this.allComponents.length });
+    this.showStatus('', '');
+  },
+
+  // CRUD
   async handleEdit(id) { FormModal.showEdit(id); },
 
   async handleDelete(id) {
@@ -197,16 +335,14 @@ const App = {
     try {
       await api.deleteComponent(id);
       this.showStatus(`物料 #${id} 已删除`, 'success');
-      this.refresh();
-    } catch (err) {
-      this.showStatus(err.message, 'error');
-    }
+      this._loadData();
+    } catch (err) { this.showStatus(err.message, 'error'); }
   },
 
   showStatus(msg, type) {
     const bar = document.getElementById('statusBar');
-    bar.className = `status-bar ${type}`;
-    bar.innerHTML = msg;
+    bar.className = `status-bar ${type || ''}`;
+    bar.innerHTML = msg || '';
   },
 
   _showSql(sql) {
@@ -214,30 +350,22 @@ const App = {
     document.getElementById('sqlOverlay').classList.remove('hidden');
   },
 
+  // 分类管理弹窗
   async _showCategories() {
     try {
       const cats = await api.listCategories();
       const list = document.getElementById('categoryList');
-      let html = '';
-      cats.forEach((c) => {
-        const indent = c.parent_id ? '<span class="indent"></span>' : '';
-        html += `<div class="category-item">
-          ${indent}<span class="code">${c.category_code || ''}</span>
-          <span>${c.category_name || ''}</span>
-        </div>`;
-      });
-      list.innerHTML = html || '<p>暂无分类</p>';
+      list.innerHTML = cats.map((c) => {
+        const indent = c.parent_id ? '└ ' : '';
+        return `<div class="cat-row">${indent}<span class="code">${c.category_code}</span> ${c.category_name}</div>`;
+      }).join('') || '<p>暂无分类</p>';
 
       const parentSelect = document.getElementById('categoryForm').querySelector('[name="parent_id"]');
-      parentSelect.innerHTML = '<option value="">顶级分类</option>';
-      cats.forEach((c) => {
-        parentSelect.innerHTML += `<option value="${c.category_id}">${c.category_code} - ${c.category_name}</option>`;
-      });
+      parentSelect.innerHTML = '<option value="">顶级分类</option>' +
+        cats.map((c) => `<option value="${c.category_id}">${c.category_code} - ${c.category_name}</option>`).join('');
 
       document.getElementById('categoryOverlay').classList.remove('hidden');
-    } catch (err) {
-      App.showStatus('加载分类失败: ' + err.message, 'error');
-    }
+    } catch (err) { App.showStatus('加载分类失败: ' + err.message, 'error'); }
   },
 };
 

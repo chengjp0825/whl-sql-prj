@@ -8,11 +8,11 @@ const componentService = require('../services/component-service');
  */
 router.get('/', async (req, res, next) => {
   try {
-    const { page, pageSize, category_id, footprint_name, manufacturer, keyword } = req.query;
+    const { page, pageSize, category_id, footprint_name, manufacturer, keyword, stock_min, stock_max } = req.query;
     const result = await componentService.list(
       parseInt(page) || 1,
       parseInt(pageSize) || 20,
-      { category_id, footprint_name, manufacturer, keyword }
+      { category_id, footprint_name, manufacturer, keyword, stock_min, stock_max }
     );
     res.json(result);
   } catch (err) {

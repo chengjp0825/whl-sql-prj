@@ -60,6 +60,10 @@ ${schemaContext}
                 enum: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
                 description: 'SQL语句类型',
               },
+              suggestion: {
+                type: 'string',
+                description: '基于查询意图提供专业建议：替代物料、选型注意事项、参数解释等。简单查询可为空字符串。',
+              },
             },
             required: ['sql', 'explanation', 'type'],
           },
@@ -76,6 +80,7 @@ ${schemaContext}
       sql: args.sql,
       explanation: args.explanation,
       type: args.type,
+      suggestion: args.suggestion || '',
     };
   }
 
