@@ -17,8 +17,8 @@ const CATEGORY_MAP = [
   { keys: ['晶振', '振荡器', 'oscillator'], code: 'CRY' },
 ];
 
-// 封装匹配：字母+数字+可选横线格式
-const FOOTPRINT_RE = /(\d{4,5}[_-]?[A-Za-z]?|[A-Za-z]+-\d+[A-Za-z]?(-\d+)?|SOT-\d+(-\d+)?|SOIC-\d+|LQFP-\d+|BGA-\d+|QFN-\d+|DFN-\d+|SOP-\d+|TO-\d+)/gi;
+// 封装匹配：\b 边界避免把料号中的数字误识别为封装（如 LTM4644 中的 4644）
+const FOOTPRINT_RE = /\b(\d{4,5}[_-]?[A-Za-z]?|[A-Za-z]+-\d+[A-Za-z]?(-\d+)?|SOT-\d+(-\d+)?|SOIC-\d+|LQFP-\d+|BGA-\d+|QFN-\d+|DFN-\d+|SOP-\d+|TO-\d+)\b/gi;
 
 // 内部料号匹配：字母-数字-字母格式
 const INTERNAL_PN_RE = /([A-Z]{2,5}-\d{4,5}-[\w.]+(?:-\d+%)?)/gi;

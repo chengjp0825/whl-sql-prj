@@ -20,7 +20,7 @@
 
 ### NL2SQL 引擎
 - `engine.js`：三层路由（规则 → 缓存 → LLM）
-- `rule-engine.js`：7 类正则匹配（封装/分类/制造商/库存/料号/价格/模糊搜索）
+- `rule-engine.js`：6 类正则匹配（封装/分类/制造商/库存/料号/价格）
 - 扩展规则：编辑 `rule-engine.js` 中的 `CATEGORY_MAP` 和各正则常量
 - `context-builder.js`：动态构建 LLM 上下文（schema + 样本数据），5 分钟缓存
 

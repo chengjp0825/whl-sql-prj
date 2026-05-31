@@ -8,22 +8,20 @@ const log = require('../utils/logger');
 const llm = createLLM();
 const MAX_RETRIES = 2;
 
-// LLM 上下文缓存（5分钟刷新一次）
+// LLM 上下文缓存（5分钟）
 let cachedContext = null;
 let contextTimestamp = 0;
 const CONTEXT_TTL = 5 * 60 * 1000;
 
 async function getContext() {
-  if (cachedContext && (Date.now() - contextTimestamp < CONTEXT_TTL)) {
-    return cachedContext;
-  }
+  if (cachedContext && (Date.now() - contextTimestamp < CONTEXT_TTL)) return cachedContext;
   cachedContext = await buildContext();
   contextTimestamp = Date.now();
   log.info('engine', 'LLM 上下文已刷新');
   return cachedContext;
 }
 
-// ---- 缓存层 ----
+// 缓存层（快速模式用）
 const cache = {};
 const CACHE_TTL = 30 * 60 * 1000;
 const CACHE_MAX = 200;
@@ -47,17 +45,19 @@ function cacheSet(nl, result) {
 }
 
 // ---- 模式路由 ----
+// fast:  规则引擎 → 缓存
+// smart: 直接 LLM（智能理解 + SQL 生成 + 选型建议）
 
-/**
- * @param {string} naturalLanguage
- * @param {object} options - { mode: 'fast' | 'smart' }
- * @returns {Promise<{...}>}
- */
 async function query(naturalLanguage, options = {}) {
   const start = Date.now();
   const mode = options.mode || 'fast';
 
-  // === Layer 1: 规则引擎 ===
+  // === AI 模式：规则查询 + LLM 建议 ===
+  if (mode === 'smart') {
+    return await smartQuery(naturalLanguage, options, start);
+  }
+
+  // === 快速模式：规则 → 缓存 ===
   const ruleResult = ruleParse(naturalLanguage);
 
   if (ruleResult.matched) {
@@ -65,69 +65,92 @@ async function query(naturalLanguage, options = {}) {
     log.info('engine', `规则命中: ${ruleResult.explanation}`, { sql: sql.substring(0, 120) });
     guard(sql);
     const result = await executeSql(sql, 'SELECT');
-
     cacheSet(naturalLanguage, { sql, explanation: ruleResult.explanation, type: 'SELECT' });
-
-    return {
-      ...result, sql, explanation: ruleResult.explanation,
-      type: 'SELECT', source: 'rule', elapsed: Date.now() - start,
-    };
+    return { ...result, sql, explanation: ruleResult.explanation, type: 'SELECT', source: 'rule', elapsed: Date.now() - start };
   }
 
-  log.info('engine', `规则未命中 (mode=${mode})，检查缓存...`);
-
-  // === Layer 2: 缓存 ===
   const cached = cacheGet(naturalLanguage);
   if (cached) {
     log.info('engine', '缓存命中', { sql: cached.sql.substring(0, 120) });
     guard(cached.sql);
     const result = await executeSql(cached.sql, cached.type);
-
-    return {
-      ...result, sql: cached.sql, explanation: cached.explanation,
-      type: cached.type, source: 'cache', elapsed: Date.now() - start,
-    };
+    return { ...result, sql: cached.sql, explanation: cached.explanation, type: cached.type, source: 'cache', elapsed: Date.now() - start };
   }
 
-  // === Fast mode: 到此为止 ===
-  if (mode === 'fast') {
-    return {
-      columns: [], rows: [], rowCount: 0, affectedRows: null,
-      sql: '', explanation: '规则和缓存均未命中',
-      type: 'SELECT', source: 'none', elapsed: Date.now() - start,
-      suggestion: '试试切换到 AI 智能搜索模式，或换个更具体的描述。如：封装名、分类名、制造商、料号。',
-    };
-  }
+  log.info('engine', '快速模式无结果');
+  return {
+    columns: [], rows: [], rowCount: 0, affectedRows: null,
+    sql: '', explanation: '规则和缓存均未命中',
+    type: 'SELECT', source: 'none', elapsed: Date.now() - start,
+    suggestion: '试试切换到 AI 智能搜索模式，或换个更具体的描述。如：封装名、分类名、制造商、料号。',
+  };
+}
 
-  // === Smart mode: Layer 3 = LLM ===
-  log.info('engine', '缓存未命中，调用 LLM (smart mode)...');
+// ---- AI 模式：规则优先 + LLM 增强 ----
 
+async function smartQuery(nl, options, start) {
   const schemaContext = await getContext();
-  let llmResult = await llm.nl2sql(naturalLanguage, schemaContext, options);
+
+  // 1. 先走规则引擎
+  const ruleResult = ruleParse(nl);
+
+  if (ruleResult.matched) {
+    // 规则命中：执行 SQL，再调 LLM 对结果做分析建议
+    const sql = buildQuery(ruleResult);
+    log.info('engine', `AI: 规则命中 → 执行 + LLM 建议`, { sql: sql.substring(0, 100) });
+    guard(sql);
+    const result = await executeSql(sql, 'SELECT');
+
+    // 让 LLM 根据查询意图 + 结果给出建议
+    const enhancePrompt = `用户查询：「${nl}」\n查询结果：共 ${result.rowCount} 条数据。\n请分析结果并给出选型建议。如果结果较多，建议如何进一步筛选；如果结果较少，建议替代方案。\n只输出建议文字，不要SQL。`;
+    try {
+      const suggestion = await llm.nl2sql(enhancePrompt, schemaContext, options);
+      return {
+        ...result, sql, explanation: ruleResult.explanation, type: 'SELECT',
+        source: 'rule', suggestion: suggestion.suggestion || suggestion.explanation || '',
+        elapsed: Date.now() - start,
+      };
+    } catch (_) {
+      return {
+        ...result, sql, explanation: ruleResult.explanation, type: 'SELECT',
+        source: 'rule', elapsed: Date.now() - start,
+      };
+    }
+  }
+
+  // 2. 规则未命中：LLM 生成 SQL
+  log.info('engine', 'AI: 规则未命中 → LLM 生成 SQL');
+  let llmResult = await llm.nl2sql(nl, schemaContext, options);
   let lastSql = llmResult.sql;
   guard(lastSql);
 
+  // 写操作：不执行，返回预览
+  if (llmResult.type !== 'SELECT') {
+    log.info('engine', 'LLM 写操作，等待确认', { sql: lastSql.substring(0, 100) });
+    return {
+      columns: [], rows: [], rowCount: 0, affectedRows: null,
+      sql: lastSql, explanation: llmResult.explanation,
+      type: llmResult.type, source: 'llm',
+      suggestion: llmResult.suggestion || null,
+      elapsed: Date.now() - start,
+    };
+  }
+
+  // SELECT：执行
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const result = await executeSql(lastSql, llmResult.type);
-      log.info('engine', `LLM 成功`, { sql: lastSql.substring(0, 120), rows: result.rowCount });
-
-      cacheSet(naturalLanguage, { sql: lastSql, explanation: llmResult.explanation, type: llmResult.type });
-
+      log.info('engine', `LLM 查询成功 · ${result.rowCount} 条`);
       return {
-        ...result,
-        sql: lastSql,
-        explanation: llmResult.explanation,
-        type: llmResult.type,
-        source: 'llm',
+        ...result, sql: lastSql, explanation: llmResult.explanation,
+        type: llmResult.type, source: 'llm',
         suggestion: llmResult.suggestion || null,
         elapsed: Date.now() - start,
       };
     } catch (err) {
-      log.warn('engine', `SQL执行失败，重试 ${attempt + 1}/${MAX_RETRIES}`, { error: err.message });
+      log.warn('engine', `SQL错误，重试 ${attempt + 1}/${MAX_RETRIES}`, { error: err.message });
       if (attempt < MAX_RETRIES - 1) {
-        const fixPrompt = `以下SQLite SQL执行出错，请修正。\nSQL: ${lastSql}\n错误: ${err.message}\n请返回修正后的SQL。`;
-        llmResult = await llm.nl2sql(fixPrompt, schemaContext, options);
+        llmResult = await llm.nl2sql(`修正SQL错误。\nSQL: ${lastSql}\n错误: ${err.message}`, schemaContext, options);
         guard(llmResult.sql);
         lastSql = llmResult.sql;
       } else {
