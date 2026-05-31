@@ -4,46 +4,9 @@ AI Agent 驱动的 PCB 电子元器件物料管理平台。用户通过自然语
 
 ## 架构
 
-```
-浏览器 (前端)                              Node.js (后端)
-┌──────────────────┐      HTTP/CORS       ┌─────────────────────────────┐
-│  搜索栏 + 过滤器  │ ◄──────────────────► │  Express API (:3000)        │
-│  侧边栏分类树     │                      │                             │
-│  结果表格 + AI建议 │                      │  ┌───────────────────────┐ │
-└──────────────────┘                      │  │ 查询引擎               │ │
-                                          │  │ 规则 → 缓存 → LLM     │ │
-                                          │  └─────────┬─────────────┘ │
-                                          │            │               │
-                                          │  ┌─────────▼─────────────┐ │
-                                          │  │ SQLite (本地文件)      │ │
-                                          │  │ backend/data/pcb_bom.db│ │
-                                          │  └───────────────────────┘ │
-                                          └─────────────────────────────┘
-```
+前端（原生 HTML/CSS/JS）通过 HTTP 调用 Express API，后端三层查询引擎处理自然语言 → SQLite 执行。
 
-### 查询引擎：三层路由
-
-```
-用户输入 NL
-    │
-    ▼
-┌────────────────┐
-│ 1. 规则引擎     │ <1ms · 7类正则模式匹配（封装/分类/制造商/库存/料号/价格）
-│   命中 → 执行    │
-└────┬───────────┘
-     │ 未命中
-     ▼
-┌────────────────┐
-│ 2. 缓存层       │ <1ms · 内存 KV 存储，TTL 30min，上限 200 条
-│   命中 → 执行    │
-└────┬───────────┘
-     │ 未命中
-     ▼
-┌────────────────┐
-│ 3. LLM (AI模式) │ 1-3s · DeepSeek/Claude/OpenAI · 附带选型建议
-│   生成SQL → 执行  │
-└────────────────┘
-```
+**查询链路**：规则引擎(<1ms) → 内存缓存 → LLM(AI模式)。规则命中直接出结果，未命中走缓存，缓存未命中才调 AI。AI 模式额外返回选型建议。
 
 ## 快速开始
 
@@ -184,57 +147,27 @@ DEEPSEEK_API_KEY=sk-你的密钥
 ## 项目结构
 
 ```
-whl/
-├── README.md
-├── .gitignore
-│
 ├── backend/
-│   ├── .env.example
-│   ├── package.json
-│   ├── data/pcb_bom.db                  # SQLite 数据库文件
-│   └── src/
-│       ├── app.js                       # Express 入口
-│       ├── config/index.js              # 配置加载（DB + LLM）
-│       ├── db/
-│       │   ├── schema.sql               # 建表 SQL
-│       │   ├── connection.js            # sql.js 连接管理
-│       │   ├── migrate.js               # 自动建表脚本
-│       │   └── seed-dev.js              # 种子数据（25 条）
-│       ├── llm/
-│       │   ├── interface.js             # LLM 抽象接口
-│       │   ├── factory.js               # 多模型工厂
-│       │   ├── deepseek.js              # DeepSeek 实现
-│       │   ├── claude.js                # Claude 实现
-│       │   └── openai.js                # OpenAI 实现
-│       ├── nl2sql/
-│       │   ├── engine.js                # 三层查询引擎
-│       │   ├── rule-engine.js           # 7 类正则规则
-│       │   ├── context-builder.js       # LLM 上下文构建（~3700 字）
-│       │   └── prompts.js               # Few-shot 示例
-│       ├── routes/
-│       │   ├── query.js                 # POST /api/query
-│       │   ├── components.js            # CRUD /api/components
-│       │   └── categories.js            # GET /api/categories
-│       ├── services/
-│       │   ├── component-service.js     # 物料业务逻辑
-│       │   └── category-service.js      # 分类业务逻辑
-│       ├── middleware/
-│       │   ├── sql-guard.js             # SQL 安全校验
-│       │   └── error-handler.js         # 统一错误处理
-│       └── utils/
-│           └── logger.js                # 日志工具
+│   ├── src/
+│   │   ├── app.js              # Express 入口
+│   │   ├── config/             # DB + LLM 配置
+│   │   ├── db/                 # schema / 连接 / migrate / seed
+│   │   ├── llm/                # Claude / OpenAI / DeepSeek 实现 + factory
+│   │   ├── nl2sql/             # 查询引擎 / 规则引擎 / LLM 上下文
+│   │   ├── routes/             # query / components / categories
+│   │   ├── services/           # 业务逻辑
+│   │   ├── middleware/         # SQL 安全 + 错误处理
+│   │   └── utils/              # 日志
+│   ├── data/pcb_bom.db         # SQLite 数据库（自动生成）
+│   └── .env.example
 │
 └── frontend/
-    ├── package.json
     ├── index.html
     ├── css/style.css
     └── js/
-        ├── app.js                       # 主逻辑（侧边栏/模式/过滤器）
-        ├── api.js                       # API 封装
-        └── components/
-            ├── query-box.js             # 搜索栏
-            ├── result-table.js          # 结果表格
-            └── form-modal.js            # CRUD 弹窗
+        ├── app.js              # 主逻辑
+        ├── api.js              # API 封装
+        └── components/         # 搜索栏 / 表格 / 弹窗
 ```
 
 ## API 文档
