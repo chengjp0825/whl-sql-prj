@@ -1,0 +1,45 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#dce8fc', 'primaryTextColor': '#333', 'primaryBorderColor': '#6c8ec4', 'lineColor': '#6c8ec4', 'secondaryColor': '#f0f4fb', 'tertiaryColor': '#fff' }}}%%
+flowchart TD
+    START(["用户输入自然语言"]) --> ROUTE{"查询模式 mode?"}
+
+    ROUTE -->|"fast 快速模式"| RE_FAST["规则引擎\n(6种正则匹配器)"]
+    ROUTE -->|"smart AI模式"| WRITE_CHECK{"写操作意图?"}
+
+    subgraph FAST["fast 路径"]
+        RE_FAST --> RE_MATCH{"规则匹配?"}
+        RE_MATCH -->|"命中"| BUILD_SQL["构建 SQL"]
+        RE_MATCH -->|"未命中"| CACHE_CHECK{"缓存命中?"}
+        CACHE_CHECK -->|"命中"| RETURN["返回结果\n(source=rule/cache)"]
+        CACHE_CHECK -->|"未命中"| EMPTY["返回空结果\n提示切换AI模式"]
+        BUILD_SQL --> EXEC["执行 SELECT"]
+        EXEC --> CACHE_SET["写入缓存"]
+        CACHE_SET --> RETURN
+    end
+
+    subgraph AI["smart 路径"]
+        WRITE_CHECK -->|"是"| LLM_GEN["LLM 生成 SQL"]
+        WRITE_CHECK -->|"否"| RE_SMART["规则引擎匹配"]
+        RE_SMART --> RE_SMART_M{"规则命中?"}
+        RE_SMART_M -->|"命中"| EXEC_SMART["执行 SELECT"]
+        RE_SMART_M -->|"未命中"| LLM_GEN
+        EXEC_SMART --> RESULT_CHECK{"结果 > 0?"}
+        RESULT_CHECK -->|"是"| LLM_ENHANCE["LLM 选型建议"]
+        RESULT_CHECK -->|"否"| RETURN2["返回结果\n(source=rule)"]
+        LLM_ENHANCE --> RETURN3["返回结果\n(source=rule + suggestion)"]
+        LLM_GEN --> TYPE_CHECK{"SQL 类型?"}
+        TYPE_CHECK -->|"SELECT"| EXEC_LLM["执行 SQL\n(最多重试2次)"]
+        TYPE_CHECK -->|"INSERT/UPDATE/DELETE"| PREVIEW["返回预览\n(requiresConfirmation)"]
+        EXEC_LLM --> EXEC_OK{"执行成功?"}
+        EXEC_OK -->|"成功"| RETURN4["返回结果\n(source=llm)"]
+        EXEC_OK -->|"失败"| RETRY_CHECK{"重试 < 2?"}
+        RETRY_CHECK -->|"是"| LLM_GEN
+        RETRY_CHECK -->|"否"| ERROR["返回错误"]
+    end
+
+    RETURN --> DONE(["结束"])
+    EMPTY --> DONE
+    RETURN2 --> DONE
+    RETURN3 --> DONE
+    PREVIEW --> DONE
+    RETURN4 --> DONE
+    ERROR --> DONE

@@ -1,0 +1,15 @@
+{
+  "name": "pcb-bom-report-scripts",
+  "version": "1.0.0",
+  "description": "Docx report generation scripts for PCB BOM project",
+  "type": "module",
+  "scripts": {
+    "render": "node render_mermaid.js",
+    "build": "node build_report.js",
+    "all": "npm run render && npm run build"
+  },
+  "dependencies": {
+    "docx": "^9.0.0",
+    "@mermaid-js/mermaid-cli": "^11.4.0"
+  }
+}

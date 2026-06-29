@@ -1,0 +1,50 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#dce8fc', 'primaryTextColor': '#333', 'primaryBorderColor': '#6c8ec4', 'lineColor': '#6c8ec4', 'secondaryColor': '#f0f4fb', 'tertiaryColor': '#fff' }}}%%
+flowchart TD
+    subgraph Frontend["前端层 (Port 3001)"]
+        direction TB
+        SPA["单页面应用 SPA\nHTML/CSS/JS 原生实现"]
+        QB["QueryBox 搜索组件"]
+        RT["ResultTable 结果表格"]
+        FM["FormModal 表单弹窗"]
+        SPA --> QB
+        SPA --> RT
+        SPA --> FM
+    end
+
+    subgraph API["API 路由层 (Express :3000)"]
+        direction TB
+        RQ["POST /api/query\n自然语言查询"]
+        RQE["POST /api/query/execute\n确认执行"]
+        RC["CRUD /api/components\n物料管理"]
+        RCAT["GET/POST /api/categories\n分类管理"]
+    end
+
+    subgraph NL2SQLEngine["NL2SQL 查询引擎"]
+        direction TB
+        RE["规则引擎\n6种正则匹配\n(封装/分类/制造商/\n库存/价格/料号)"]
+        CACHE["缓存层\n30min TTL / 200条"]
+        LLM["LLM 兜底\n(Claude/OpenAI/DeepSeek)"]
+        CTX["上下文构建器\nschema + 样本数据"]
+
+        RE --> CACHE
+        CACHE --> LLM
+        CTX --> LLM
+    end
+
+    subgraph Data["数据层"]
+        SQLite["SQLite (sql.js)\n内存数据库 + 磁盘持久化"]
+        DBFILE["pcb_bom.db"]
+        SQLite --> DBFILE
+    end
+
+    subgraph Safety["安全防护层"]
+        SG["SQL Guard 中间件\n1.禁止DDL 2.禁止多语句\n3.DELETE需WHERE 4.UPDATE需WHERE"]
+    end
+
+    Frontend -->|"fetch + CORS"| API
+    RQ --> NL2SQLEngine
+    RQE --> Safety
+    RC --> SQLite
+    RCAT --> SQLite
+    NL2SQLEngine --> Safety
+    Safety --> SQLite

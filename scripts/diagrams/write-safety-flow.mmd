@@ -1,0 +1,27 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#dce8fc', 'primaryTextColor': '#333', 'primaryBorderColor': '#6c8ec4', 'lineColor': '#6c8ec4', 'secondaryColor': '#f0f4fb', 'tertiaryColor': '#fff' }}}%%
+flowchart TD
+    LLM(["LLM 生成写操作 SQL"]) --> G1{"第1层: DDL 检测?\n禁止 DROP/ALTER/CREATE 等"}
+
+    G1 -->|"通过"| G2{"第2层: 多语句检测?\n禁止分号+后续语句"}
+    G1 -->|"拒绝"| E1(["[X]拒绝: DDL 禁止执行"])
+
+    G2 -->|"通过"| G3{"第3层: DELETE 带 WHERE?\n防止全表删除"}
+    G2 -->|"拒绝"| E2(["[X]拒绝: 多条语句禁止"])
+
+    G3 -->|"是DELETE且无WHERE"| E3(["[X]拒绝: 缺少 WHERE"])
+    G3 -->|"通过"| G4{"第4层: UPDATE 带 WHERE?\n防止全表更新"}
+
+    G4 -->|"是UPDATE且无WHERE"| E4(["[X]拒绝: 缺少 WHERE"])
+    G4 -->|"全部通过"| PREVIEW["返回 SQL 预览\n(status=preview)\n(requiresConfirmation=true)"]
+
+    PREVIEW --> FRONTEND["前端显示确认弹窗\n展示操作说明和 SQL"]
+    FRONTEND --> USER{"用户确认?"}
+
+    USER -->|"取消"| CANCEL(["操作取消"])
+    USER -->|"确认执行"| EXEC["POST /api/query/execute\n再次通过 Guard 校验"]
+
+    EXEC --> RECHECK{"Guard 二次校验"}
+    RECHECK -->|"通过"| RUN["执行 SQL\n保存数据库"]
+    RECHECK -->|"拒绝"| E5(["[X]执行拒绝"])
+
+    RUN --> SUCCESS(["[OK]操作成功\n返回 affectedRows"])

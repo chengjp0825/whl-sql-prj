@@ -1,0 +1,36 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#dce8fc', 'primaryTextColor': '#333', 'primaryBorderColor': '#6c8ec4', 'lineColor': '#6c8ec4', 'secondaryColor': '#f0f4fb', 'tertiaryColor': '#fff' }}}%%
+erDiagram
+    component_category {
+        INTEGER category_id PK "分类ID"
+        INTEGER parent_id FK "父分类ID"
+        TEXT category_name "分类名称"
+        TEXT category_code "分类编码"
+        INTEGER sort_order "排序"
+        TEXT created_at "创建时间"
+        TEXT updated_at "更新时间"
+    }
+    component_library {
+        INTEGER component_id PK "元器件ID"
+        TEXT internal_pn UK "内部料号"
+        INTEGER category_id FK "分类ID"
+        TEXT description "描述"
+        TEXT footprint_name "封装名称"
+        TEXT symbol_name "符号名称"
+        TEXT spec_json "规格参数JSON"
+        TEXT manufacturer "制造商"
+        TEXT manufacturer_pn "制造商料号"
+        TEXT supplier "供应商"
+        TEXT supplier_pn "供应商料号"
+        REAL unit_price "单价"
+        TEXT currency "币种"
+        TEXT price_date "价格日期"
+        INTEGER stock_qty "库存数量"
+        TEXT datasheet_url "数据手册"
+        INTEGER source_project_id "来源项目"
+        TEXT remark "备注"
+        INTEGER created_by "创建人"
+        TEXT created_at "创建时间"
+        TEXT updated_at "更新时间"
+    }
+    component_category ||--o{ component_library : "分类包含"
+    component_category ||--o{ component_category : "父子自引用"
